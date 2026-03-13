@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run ShellCheck on deploy.sh
+        run: shellcheck deploy.sh
+      - name: Run ShellCheck on config.example.sh
+        run: shellcheck config.example.sh
+      - name: Run ShellCheck on example scripts
+        run: |
+          if compgen -G "examples/scripts/*.sh" > /dev/null; then
+            shellcheck examples/scripts/*.sh
+          fi
+
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install bats
+        run: |
+          git clone --depth 1 https://github.com/bats-core/bats-core.git /tmp/bats
+          sudo /tmp/bats/install.sh /usr/local
+      - name: Run tests
+        run: bats tests/
