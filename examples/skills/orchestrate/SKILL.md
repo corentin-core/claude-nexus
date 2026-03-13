@@ -10,6 +10,13 @@ description:
 Coordinate work across multiple repositories by creating tasks, dispatching workers, and
 validating results.
 
+> **STOP — Read this before doing anything.**
+>
+> Autonomous workers MUST be launched with `claude -p` via the Bash tool (see Phase 3).
+> Do NOT use the Agent tool — sub-agents inherit permission constraints, cannot run Bash
+> in background, and **will silently fail 100% of the time** for any task requiring git,
+> file edits, or shell commands. Follow Phase 3 exactly.
+
 ## Arguments
 
 `$ARGUMENTS` is the task description. It should mention:
