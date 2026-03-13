@@ -128,6 +128,11 @@ WORKTREE=/tmp/worker-<repo>-$TASK_ID
 git -C "$REPO" fetch origin
 git -C "$REPO" worktree add "$WORKTREE" -b "$BRANCH" origin/main
 
+# 1b. Replicate Claude Code config (.claude/, CLAUDE.md) into the worktree
+# Without this, the worker won't have access to rules, commands, or skills
+# (see examples/scripts/setup-worktree-config.sh)
+<path-to-claude-nexus>/examples/scripts/setup-worktree-config.sh "$REPO" "$WORKTREE"
+
 # 2. Write the worker prompt
 cat > /tmp/worker-<repo>.txt << 'PROMPT'
 You are working on a cross-repo task in a git worktree.
