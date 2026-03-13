@@ -10,6 +10,10 @@ Claude Code loads rules, commands, and skills from each project's `.claude/` dir
 but these don't inherit across projects. If you work on multiple repos, you end up
 copy-pasting the same config everywhere.
 
+In a team, everyone also has their own Claude Code preferences — but you don't want to
+commit personal config into each project's repo. claude-nexus keeps your config separate,
+centralized, and out of your projects' git history.
+
 **claude-nexus** solves this by keeping all your Claude Code configuration in a single
 repo and deploying it via symlinks. Change a rule once, run `deploy.sh`, and every
 project gets the update.
