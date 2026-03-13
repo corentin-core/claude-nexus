@@ -10,6 +10,13 @@ description:
 Coordinate work across multiple repositories by creating tasks, dispatching workers, and
 validating results.
 
+> **STOP — Read this before doing anything.**
+>
+> Autonomous workers MUST be launched with `claude -p` via the Bash tool (see Phase 3).
+> Do NOT use the Agent tool — sub-agents inherit permission constraints, cannot run Bash
+> in background, and **will silently fail 100% of the time** for any task requiring git,
+> file edits, or shell commands. Follow Phase 3 exactly.
+
 ## Arguments
 
 `$ARGUMENTS` is the task description. It should mention:
@@ -127,6 +134,11 @@ WORKTREE=/tmp/worker-<repo>-$TASK_ID
 
 git -C "$REPO" fetch origin
 git -C "$REPO" worktree add "$WORKTREE" -b "$BRANCH" origin/main
+
+# 1b. Replicate Claude Code config (.claude/, CLAUDE.md) into the worktree
+# Without this, the worker won't have access to rules, commands, or skills
+# (see examples/scripts/setup-worktree-config.sh)
+<path-to-claude-nexus>/examples/scripts/setup-worktree-config.sh "$REPO" "$WORKTREE"
 
 # 2. Write the worker prompt
 cat > /tmp/worker-<repo>.txt << 'PROMPT'
