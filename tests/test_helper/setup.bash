@@ -14,9 +14,10 @@ setup() {
     CLAUDE_CONFIG_DIR="$TEST_WORKSPACE/claude-nexus"
     mkdir -p "$CLAUDE_CONFIG_DIR"
 
-    # Copy deploy.sh and config.example.sh
+    # Copy deploy.sh, lib/, and config.example.sh
     cp "$BATS_TEST_DIRNAME/../deploy.sh" "$CLAUDE_CONFIG_DIR/deploy.sh"
     chmod +x "$CLAUDE_CONFIG_DIR/deploy.sh"
+    cp -r "$BATS_TEST_DIRNAME/../lib" "$CLAUDE_CONFIG_DIR/lib"
 
     # Create shared config
     mkdir -p "$CLAUDE_CONFIG_DIR/shared/rules"
