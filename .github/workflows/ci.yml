@@ -12,7 +12,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Run ShellCheck on deploy.sh
-        run: shellcheck deploy.sh
+        run: shellcheck -x deploy.sh
+      - name: Run ShellCheck on lib/deploy-lib.sh
+        run: shellcheck lib/deploy-lib.sh
       - name: Run ShellCheck on config.example.sh
         run: shellcheck config.example.sh
       - name: Run ShellCheck on example scripts
