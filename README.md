@@ -37,7 +37,7 @@ into each one's `.claude/` directory.
 | `shared/rules/*.md` | `project/.claude/rules/` |
 | `shared/commands/*.md` | `project/.claude/commands/` |
 | `shared/skills/<name>/` | `project/.claude/skills/` |
-| `shared/settings.json` | `project/.claude/settings.json` |
+| `shared/settings.json` | `~/.claude/settings.json` + `project/.claude/settings.json` (fallback) |
 | `projects/<name>/rules/*.md` | `<name>/.claude/rules/` (override) |
 | `projects/<name>/CLAUDE.md` | `<name>/CLAUDE.md` |
 | `global/commands/*.md` | `~/.claude/commands/` |
@@ -67,10 +67,12 @@ Run `./deploy.sh --dry-run` to preview changes without touching anything.
 claude-nexus/
 ├── deploy.sh                    # Deployment script (idempotent)
 ├── config.example.sh            # Configuration template
+├── lib/
+│   └── deploy-lib.sh            # Shared helper functions (reusable by submodule consumers)
 │
 ├── shared/                      # Deployed to ALL sibling projects
 │   ├── CLAUDE.md                # Shared context (parent directory inheritance)
-│   ├── settings.json            # Shared Claude Code settings
+│   ├── settings.json            # Shared Claude Code settings (user-level + project fallback)
 │   ├── rules/*.md               # → each project's .claude/rules/
 │   ├── commands/*.md            # → each project's .claude/commands/
 │   └── skills/<name>/SKILL.md   # → each project's .claude/skills/
@@ -231,11 +233,38 @@ Copy anything you like into `shared/` (or `global/`) and run `deploy.sh`.
 | `claude-mode.sh` | Shell function to toggle auto/supervised permission profiles |
 | `setup-worktree-config.sh` | Replicate `.claude/` config into git worktrees (used by orchestrate) |
 
+## Use as a submodule
+
+claude-nexus can also serve as a **framework** for your own config repo. Add it as a
+submodule to reuse `lib/deploy-lib.sh` while keeping your own content:
+
+```bash
+# In your config repo
+git submodule add https://github.com/YOUR_USER/claude-nexus.git base
+
+# Your deploy.sh sources the shared helpers
+cat > deploy.sh << 'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DRY_RUN=false
+[[ "${1:-}" == "--dry-run" ]] && DRY_RUN=true
+
+source "$SCRIPT_DIR/base/lib/deploy-lib.sh"
+
+# Use helpers: safe_link, deploy_shared_config, deploy_project_overrides, etc.
+# Add your own deploy logic on top
+SCRIPT
+```
+
+This lets you maintain your own rules and skills while benefiting from deploy tooling
+updates upstream.
+
 ## Contributing
 
 1. Fork and clone
 2. Make your changes
-3. Run `shellcheck deploy.sh` and `bats tests/`
+3. Run `shellcheck -x deploy.sh` and `bats tests/`
 4. Open a PR
 
 ## License
