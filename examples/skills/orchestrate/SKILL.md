@@ -124,21 +124,31 @@ The Agent tool is fine for read-only research tasks that don't need Bash.
 #### Autonomous worker dispatch
 
 **Always use a git worktree** so the worker has an isolated copy of the repo.
+Worktrees are created under `$BASE_DIR/.worktrees/` (persistent across reboots, unlike
+`/tmp/`).
 
 ```bash
 # 1. Create an isolated worktree for the worker
 REPO=$BASE_DIR/<repo>
 TASK_ID=<task-id>
 BRANCH=<branch-name>
-WORKTREE=/tmp/worker-<repo>-$TASK_ID
+WORKTREE=$BASE_DIR/.worktrees/<repo>-$TASK_ID
 
+mkdir -p "$BASE_DIR/.worktrees"
 git -C "$REPO" fetch origin
 git -C "$REPO" worktree add "$WORKTREE" -b "$BRANCH" origin/main
 
 # 1b. Replicate Claude Code config (.claude/, CLAUDE.md) into the worktree
 # Without this, the worker won't have access to rules, commands, or skills
-# (see examples/scripts/setup-worktree-config.sh)
-<path-to-claude-nexus>/examples/scripts/setup-worktree-config.sh "$REPO" "$WORKTREE"
+NEXUS_DIR=<path-to-claude-nexus>
+"$NEXUS_DIR/examples/scripts/setup-worktree-config.sh" "$REPO" "$WORKTREE"
+
+# 1c. Set up worker monitoring hook
+# This hook writes progress after each tool call to the task status directory
+HOOK_DIR="$NEXUS_DIR/examples/hooks"
+mkdir -p "$WORKTREE/.claude"
+sed "s|__HOOK_PATH__|${HOOK_DIR}|g" \
+  "$HOOK_DIR/worker-settings.template.json" > "$WORKTREE/.claude/settings.local.json"
 
 # 2. Write the worker prompt
 cat > /tmp/worker-<repo>.txt << 'PROMPT'
@@ -158,23 +168,63 @@ You are working on a cross-repo task in a git worktree.
 Write your results to the shared context messages directory, then exit.
 PROMPT
 
-# 3. Launch the worker in the worktree
+# 3. Launch the worker with monitoring
+# The stream-json output is piped through monitor-worker.sh which:
+#   - Writes raw JSONL log to $TASK_DIR/worker-<repo>.jsonl
+#   - Maintains a live status file at $TASK_DIR/worker-<repo>-status.md
+#   - Prints tool call summaries to stderr in real time
+TASK_DIR=$BASE_DIR/.shared-context/tasks/$TASK_ID
+export WORKER_STATUS_DIR="$TASK_DIR"
+export WORKER_NAME="<repo>"
+
 cd "$WORKTREE" && claude -p \
+  --output-format stream-json \
+  --verbose \
   --permission-mode bypassPermissions \
   --disallowedTools "Bash(rm -rf *) Bash(git push --force *)" \
   --no-session-persistence \
-  "$(cat /tmp/worker-<repo>.txt)" 2>&1
+  "$(cat /tmp/worker-<repo>.txt)" 2>/dev/null \
+  | "$NEXUS_DIR/examples/scripts/monitor-worker.sh" "$TASK_DIR" "<repo>"
 ```
 
 **Important**: Run workers sequentially if steps depend on each other. Run in parallel
 only for truly independent steps.
+
+#### Monitoring workers during execution
+
+While a worker runs, you can check its status at any time:
+
+```bash
+# Live status (state, last tool call, timestamps)
+cat $TASK_DIR/worker-<repo>-status.md
+
+# Full progress log from hook (every tool call)
+cat $TASK_DIR/worker-<repo>-progress.md
+
+# Raw stream-json log (for debugging)
+tail -5 $TASK_DIR/worker-<repo>.jsonl | jq .
+```
+
+The status file contains:
+- **state**: `working` / `stalled` / `permission-blocked` / `done` / `error`
+- **last_event**: timestamp of last activity
+- **tool_calls**: total tool call count
+- **Last activity**: human-readable summary of what the worker is doing
+
+**React to worker states:**
+- `working` → normal, keep waiting
+- `permission-blocked` → worker hit a permission prompt despite `bypassPermissions`;
+  report to user immediately
+- `stalled` → no events for >2 minutes; read the JSONL log tail and report to user
+- `error` → worker crashed; read status for details, switch to interactive mode
+- `done` → proceed to validation
 
 #### Worktree cleanup
 
 After validation:
 
 ```bash
-git -C $BASE_DIR/<repo> worktree remove /tmp/worker-<repo>-<task-id>
+git -C $BASE_DIR/<repo> worktree remove "$BASE_DIR/.worktrees/<repo>-<task-id>"
 git -C $BASE_DIR/<repo> branch -d <branch-name>
 ```
 
@@ -192,18 +242,40 @@ Then tell the instance:
 
 ### Phase 4: Follow up and validate
 
+While workers are running, **actively monitor their status**:
+
+1. **Poll worker status** every 30 seconds:
+
+```bash
+cat $TASK_DIR/worker-<repo>-status.md
+```
+
+2. **Report progress to user** at natural milestones (every few tool calls or state
+   changes). Keep it concise:
+
+```
+Worker repo-a: Editing src/handlers.py (12 tool calls, 45s elapsed)
+Worker repo-b: Running pytest (8 tool calls, 30s elapsed)
+```
+
+3. **React immediately** to `permission-blocked`, `stalled`, or `error` states — do not
+   wait for the worker to finish.
+
 After workers complete:
 
 1. **Read worker messages** from the shared context
-2. **Validate consistency** (files moved, imports updated, tests pass)
-3. **Handle blockers** (relay answers, ask user if needed)
-4. **Update task status** as steps complete
-5. **Final report** to the user with changes by repo and next steps
-6. Update `active-tasks.md` status to `done`
+2. **Read worker progress logs** for a summary of what was done
+3. **Validate consistency** (files moved, imports updated, tests pass)
+4. **Handle blockers** (relay answers, ask user if needed)
+5. **Update task status** as steps complete
+6. **Final report** to the user with changes by repo and next steps
+7. Update `active-tasks.md` status to `done`
 
 ## Error Handling
 
-- If an autonomous worker fails, capture its output and present to the user
+- If an autonomous worker fails, read its status and JSONL log, present details to user
+- If a worker is `stalled` (>2 min no activity), alert the user and offer to kill it
+- If a worker is `permission-blocked`, report the exact blocked tool call to the user
 - If a worker times out (>10 minutes), kill it and switch to interactive mode
 - If staging files are inconsistent, stop and report the discrepancy
 
