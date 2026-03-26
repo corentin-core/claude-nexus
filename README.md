@@ -95,8 +95,8 @@ claude-nexus/
     ├── commands/                # Interactive commands
     ├── agents/                  # Specialized subagents
     └── scripts/
-        ├── claude-mode.sh       # Toggle auto/supervised permission profiles
-        └── setup-worktree-config.sh  # Replicate .claude/ config into git worktrees
+        ├── setup-worktree-config.sh  # Replicate .claude/ config into git worktrees
+        └── monitor-worker.sh        # Real-time monitoring of orchestrated workers
 ```
 
 ## Configuration
@@ -230,8 +230,8 @@ Copy anything you like into `shared/` (or `global/`) and run `deploy.sh`.
 
 | Script | What it does |
 |---|---|
-| `claude-mode.sh` | Shell function to toggle auto/supervised permission profiles |
 | `setup-worktree-config.sh` | Replicate `.claude/` config into git worktrees (used by orchestrate) |
+| `monitor-worker.sh` | Real-time monitoring of orchestrated workers via stream-json |
 
 ## Use as a submodule
 
