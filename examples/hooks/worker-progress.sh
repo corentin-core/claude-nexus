@@ -19,43 +19,10 @@ set -euo pipefail
 
 INPUT=$(cat)
 TIMESTAMP=$(date -Iseconds)
-TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // "unknown"')
 PROGRESS_FILE="${WORKER_STATUS_DIR}/worker-${WORKER_NAME}-progress.md"
 
-# Build a human-readable summary of the tool call
-case "$TOOL_NAME" in
-    Read)
-        file=$(echo "$INPUT" | jq -r '.tool_input.file_path // "?"')
-        summary="Reading ${file}"
-        ;;
-    Edit)
-        file=$(echo "$INPUT" | jq -r '.tool_input.file_path // "?"')
-        summary="Editing ${file}"
-        ;;
-    Write)
-        file=$(echo "$INPUT" | jq -r '.tool_input.file_path // "?"')
-        summary="Writing ${file}"
-        ;;
-    Bash)
-        cmd=$(echo "$INPUT" | jq -r '.tool_input.command // "?"' | head -c 80)
-        summary="Running: ${cmd}"
-        ;;
-    Glob)
-        pattern=$(echo "$INPUT" | jq -r '.tool_input.pattern // "?"')
-        summary="Searching files: ${pattern}"
-        ;;
-    Grep)
-        pattern=$(echo "$INPUT" | jq -r '.tool_input.pattern // "?"')
-        summary="Searching code: ${pattern}"
-        ;;
-    Skill)
-        skill=$(echo "$INPUT" | jq -r '.tool_input.skill // "?"')
-        summary="Running skill: ${skill}"
-        ;;
-    *)
-        summary="Using ${TOOL_NAME}"
-        ;;
-esac
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+summary=$(echo "$INPUT" | "$SCRIPT_DIR/summarize-tool.sh")
 
 # Append to progress log (append, not overwrite — full history)
 echo "- \`${TIMESTAMP}\` ${summary}" >> "$PROGRESS_FILE"

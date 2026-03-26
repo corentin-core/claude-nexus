@@ -35,6 +35,9 @@ STATUS_DIR="$1"
 WORKER_NAME="$2"
 LOG_FILE="$STATUS_DIR/worker-${WORKER_NAME}.jsonl"
 STATUS_FILE="$STATUS_DIR/worker-${WORKER_NAME}-status.md"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SUMMARIZE="$SCRIPT_DIR/../hooks/summarize-tool.sh"
+
 mkdir -p "$STATUS_DIR"
 
 # --- Helper: write the status file ---
@@ -58,58 +61,6 @@ turns: ${turn_count}
 
 ${activity}
 EOF
-}
-
-# --- Helper: extract a summary from a tool_use event ---
-summarize_tool_use() {
-    local tool_name="$1"
-    local tool_input="$2"
-
-    case "$tool_name" in
-        Read)
-            local file
-            file=$(echo "$tool_input" | jq -r '.file_path // empty' 2>/dev/null)
-            echo "Reading ${file:-unknown file}"
-            ;;
-        Edit)
-            local file
-            file=$(echo "$tool_input" | jq -r '.file_path // empty' 2>/dev/null)
-            echo "Editing ${file:-unknown file}"
-            ;;
-        Write)
-            local file
-            file=$(echo "$tool_input" | jq -r '.file_path // empty' 2>/dev/null)
-            echo "Writing ${file:-unknown file}"
-            ;;
-        Bash)
-            local cmd
-            cmd=$(echo "$tool_input" | jq -r '.command // empty' 2>/dev/null | head -c 80)
-            echo "Running: ${cmd:-unknown command}"
-            ;;
-        Glob)
-            local pattern
-            pattern=$(echo "$tool_input" | jq -r '.pattern // empty' 2>/dev/null)
-            echo "Searching files: ${pattern:-*}"
-            ;;
-        Grep)
-            local pattern
-            pattern=$(echo "$tool_input" | jq -r '.pattern // empty' 2>/dev/null)
-            echo "Searching code: ${pattern:-*}"
-            ;;
-        Skill)
-            local skill
-            skill=$(echo "$tool_input" | jq -r '.skill // empty' 2>/dev/null)
-            echo "Running skill: ${skill:-unknown}"
-            ;;
-        Agent|Task)
-            local desc
-            desc=$(echo "$tool_input" | jq -r '.description // .prompt // empty' 2>/dev/null | head -c 80)
-            echo "${tool_name}: ${desc:-...}"
-            ;;
-        *)
-            echo "Using tool: ${tool_name}"
-            ;;
-    esac
 }
 
 # --- Main loop ---
@@ -146,8 +97,8 @@ while IFS= read -r line; do
             has_tool_use=$(echo "$line" | jq -r '.message.content[]? | select(.type == "tool_use") | .name' 2>/dev/null | head -1)
 
             if [[ -n "$has_tool_use" ]]; then
-                tool_input=$(echo "$line" | jq -c '.message.content[] | select(.type == "tool_use") | .input' 2>/dev/null | head -1)
-                activity=$(summarize_tool_use "$has_tool_use" "$tool_input")
+                # Reformat stream-json tool_use into summarize-tool.sh format
+                activity=$(echo "$line" | jq -c '.message.content[] | select(.type == "tool_use") | {tool_name: .name, tool_input: .input}' 2>/dev/null | head -1 | "$SUMMARIZE")
                 tool_count=$((tool_count + 1))
                 state="working"
                 echo "[${WORKER_NAME}] ${activity}" >&2
