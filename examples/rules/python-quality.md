@@ -45,7 +45,7 @@ def compute_total(entries: Sequence[Entry]) -> float:
 | Need | Type |
 |------|------|
 | Random access or multiple iterations | `Sequence[T]` |
-| Single iteration only | `Iterable[T]` |
+| Single iteration, or materialized into tuple/list early | `Iterable[T]` |
 | Will modify the collection | `list[T]` |
 
 ## Return tuples, not lists
