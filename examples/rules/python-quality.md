@@ -21,6 +21,33 @@ def calculate_total(items: tuple[Item, ...], tax_rate: Decimal) -> Decimal:
     return sum(i.price for i in items) * (1 + tax_rate)
 ```
 
+## Read-only parameters: use Sequence, not list
+
+**Why**: `list[T]` in a parameter signature implies the function may mutate the list.
+For read-only access, use `Sequence[T]` (supports list, tuple, and other sequences) or
+`Iterable[T]` (if iterating only once).
+
+**Rule**: For function parameters that are only read (not mutated), use
+`collections.abc.Sequence` or `collections.abc.Iterable` instead of `list` or `tuple`.
+
+```python
+# BAD - implies mutation
+def compute_total(entries: list[Entry]) -> float:
+    return sum(e.value for e in entries)
+
+# GOOD - signals read-only intent
+from collections.abc import Sequence
+
+def compute_total(entries: Sequence[Entry]) -> float:
+    return sum(e.value for e in entries)
+```
+
+| Need | Type |
+|------|------|
+| Random access or multiple iterations | `Sequence[T]` |
+| Single iteration only | `Iterable[T]` |
+| Will modify the collection | `list[T]` |
+
 ## Return tuples, not lists
 
 **Why**: Tuples are immutable and signal that the caller shouldn't modify the result.
