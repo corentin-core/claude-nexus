@@ -218,6 +218,66 @@ load test_helper/setup
     [ ! -e "$CLAUDE_HOME/projects/$encoded/memory/team.md" ]
 }
 
+@test "indexes deployed memory in MEMORY.md" {
+    mkdir -p "$CLAUDE_CONFIG_DIR/shared/memory"
+    echo "# Team info" > "$CLAUDE_CONFIG_DIR/shared/memory/team.md"
+    echo 'DEPLOY_MEMORY=true' >> "$CLAUDE_CONFIG_DIR/config.sh"
+
+    run "$CLAUDE_CONFIG_DIR/deploy.sh"
+    [ "$status" -eq 0 ]
+
+    encoded=$(echo "$TEST_WORKSPACE/project-a" | sed 's|/|-|g')
+    index="$CLAUDE_HOME/projects/$encoded/memory/MEMORY.md"
+    [ -f "$index" ]
+    grep -qF "[team.md](team.md)" "$index"
+}
+
+@test "prunes stale MEMORY.md entry when shared memory is deleted" {
+    mkdir -p "$CLAUDE_CONFIG_DIR/shared/memory"
+    echo "# Team info" > "$CLAUDE_CONFIG_DIR/shared/memory/team.md"
+    echo 'DEPLOY_MEMORY=true' >> "$CLAUDE_CONFIG_DIR/config.sh"
+
+    run "$CLAUDE_CONFIG_DIR/deploy.sh"
+    [ "$status" -eq 0 ]
+
+    encoded=$(echo "$TEST_WORKSPACE/project-a" | sed 's|/|-|g')
+    index="$CLAUDE_HOME/projects/$encoded/memory/MEMORY.md"
+    grep -qF "team.md" "$index"
+
+    # Delete the shared memory and redeploy
+    rm "$CLAUDE_CONFIG_DIR/shared/memory/team.md"
+    run "$CLAUDE_CONFIG_DIR/deploy.sh"
+    [ "$status" -eq 0 ]
+
+    # Symlink removed and index entry pruned
+    [ ! -e "$CLAUDE_HOME/projects/$encoded/memory/team.md" ]
+    ! grep -qF "team.md" "$index"
+}
+
+@test "prune leaves hand-written MEMORY.md entries alone" {
+    mkdir -p "$CLAUDE_CONFIG_DIR/shared/memory"
+    echo "# Team info" > "$CLAUDE_CONFIG_DIR/shared/memory/team.md"
+    echo 'DEPLOY_MEMORY=true' >> "$CLAUDE_CONFIG_DIR/config.sh"
+
+    run "$CLAUDE_CONFIG_DIR/deploy.sh"
+    [ "$status" -eq 0 ]
+
+    encoded=$(echo "$TEST_WORKSPACE/project-a" | sed 's|/|-|g')
+    memory_dir="$CLAUDE_HOME/projects/$encoded/memory"
+    index="$memory_dir/MEMORY.md"
+
+    # A locally-authored entry: link text differs from the (absent) target
+    echo "- [My Local Note](local-note.md) — kept" >> "$index"
+
+    # Delete the shared memory and redeploy: team.md prunes, local entry stays
+    rm "$CLAUDE_CONFIG_DIR/shared/memory/team.md"
+    run "$CLAUDE_CONFIG_DIR/deploy.sh"
+    [ "$status" -eq 0 ]
+
+    ! grep -qF "team.md" "$index"
+    grep -qF "[My Local Note](local-note.md)" "$index"
+}
+
 # ─── Empty directories ───────────────────────────────────────────────────────
 
 @test "works with no shared rules" {
