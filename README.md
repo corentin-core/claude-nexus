@@ -95,8 +95,7 @@ claude-nexus/
     ├── commands/                # Interactive commands
     ├── agents/                  # Specialized subagents
     └── scripts/
-        ├── setup-worktree-config.sh  # Replicate .claude/ config into git worktrees
-        └── monitor-worker.sh        # Real-time monitoring of orchestrated workers
+        └── setup-worktree-config.sh  # Replicate .claude/ config into git worktrees
 ```
 
 ## Configuration
@@ -207,7 +206,6 @@ Copy anything you like into `shared/` (or `global/`) and run `deploy.sh`.
 | `create-issue` | Issue creation (feature or bug) with templates and labels |
 | `refactor-check` | Code quality analysis: encapsulation, validations, test quality |
 | `update-config` | Edit config from any project: modify, deploy, commit, push (global skill) |
-| `orchestrate` | Multi-repo task coordinator using `claude -p` workers in worktrees |
 | `handoff` | Send files/messages between Claude instances via shared filesystem |
 | `check-handoffs` | Receive and process cross-repo messages |
 
@@ -230,8 +228,7 @@ Copy anything you like into `shared/` (or `global/`) and run `deploy.sh`.
 
 | Script | What it does |
 |---|---|
-| `setup-worktree-config.sh` | Replicate `.claude/` config into git worktrees (used by orchestrate) |
-| `monitor-worker.sh` | Real-time monitoring of orchestrated workers via stream-json |
+| `setup-worktree-config.sh` | Replicate `.claude/` config into git worktrees |
 
 ## Use as a submodule
 
