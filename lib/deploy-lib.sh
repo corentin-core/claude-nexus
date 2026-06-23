@@ -190,6 +190,76 @@ deploy_memory() {
     mkdir -p "$memory_dir"
     clean_stale_symlinks "$memory_dir"
     deploy_dir "$memory_src" "$memory_dir"
+
+    # Ensure MEMORY.md indexes all shared memory files (skip MEMORY.md itself)
+    local memory_index="$memory_dir/MEMORY.md"
+    if [[ ! -f "$memory_index" ]]; then
+        # Create seed MEMORY.md
+        if $DRY_RUN; then
+            log "[dry-run] would create: $memory_index"
+        else
+            printf '# Memory Index\n\n## Shared\n\n' > "$memory_index"
+            log "created: $memory_index"
+        fi
+    fi
+
+    # Prune stale index entries. deploy writes "- [name.md](name.md) — …"; an
+    # entry is stale when its link target (a bare filename) no longer has a file
+    # or symlink in memory_dir (clean_stale_symlinks above already dropped the
+    # symlink for a deleted shared memory). Only deploy-style entries — where the
+    # link text equals the target — are touched, so hand-written or local-memory
+    # entries (whose text differs from the filename) are left alone.
+    if [[ -f "$memory_index" ]]; then
+        local entry_re='^- \[([^]]+)\]\(([^)]+)\)'
+        local line text link
+        if $DRY_RUN; then
+            while IFS= read -r line || [[ -n "$line" ]]; do
+                [[ $line =~ $entry_re ]] || continue
+                text="${BASH_REMATCH[1]}"; link="${BASH_REMATCH[2]}"
+                if [[ "$text" == "$link" && "$link" != */* && ! -e "$memory_dir/$link" ]]; then
+                    log "[dry-run] would prune stale MEMORY.md entry: $link"
+                fi
+            done < "$memory_index"
+        else
+            local tmp_index="$memory_index.tmp" pruned=0
+            : > "$tmp_index"
+            while IFS= read -r line || [[ -n "$line" ]]; do
+                if [[ $line =~ $entry_re ]]; then
+                    text="${BASH_REMATCH[1]}"; link="${BASH_REMATCH[2]}"
+                    if [[ "$text" == "$link" && "$link" != */* && ! -e "$memory_dir/$link" ]]; then
+                        log "pruned stale MEMORY.md entry: $link"
+                        pruned=1
+                        continue
+                    fi
+                fi
+                printf '%s\n' "$line" >> "$tmp_index"
+            done < "$memory_index"
+            if [[ "$pruned" -eq 1 ]]; then
+                mv "$tmp_index" "$memory_index"
+            else
+                rm -f "$tmp_index"
+            fi
+        fi
+    fi
+
+    # Add missing shared entries
+    local f name description
+    for f in "$memory_src"/*.md; do
+        [[ -f "$f" ]] || continue
+        name="$(basename "$f")"
+        [[ "$name" == "MEMORY.md" ]] && continue
+
+        if ! grep -qF "$name" "$memory_index" 2>/dev/null; then
+            # Extract description from frontmatter if available
+            description="$(sed -n '/^---$/,/^---$/{ /^description:/{ s/^description: *//; p; q; } }' "$f")"
+            if $DRY_RUN; then
+                log "[dry-run] would add $name to MEMORY.md"
+            else
+                echo "- [$name]($name) — ${description:-shared memory}" >> "$memory_index"
+                log "indexed: $name in MEMORY.md"
+            fi
+        fi
+    done
 }
 
 # Deploy shared config (rules, commands, skills) to a target project directory
