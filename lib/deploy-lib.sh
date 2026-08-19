@@ -245,63 +245,78 @@ deploy_memory() {
     # Upsert shared entries. The index hook is what decides whether a memory gets
     # opened at all, so a drifting description has to reach the already-indexed
     # projects too, not just the next new one.
-    local -A desired=()
-    local f name description
-    for f in "$memory_src"/*.md; do
+    #
+    # Identity is decided by the exact prefix this function writes, never by
+    # re-parsing the line: a file name holding a "]" or a ")" defeats any
+    # bracket-matching regex, and the entry would then be appended again on every
+    # single deploy. Two arrays rather than one associative array, so the floor
+    # stays at bash 3.2 (macOS).
+    local names=() hooks=() f name description
+    while IFS= read -r f; do
         [[ -f "$f" ]] || continue
         name="$(basename "$f")"
         [[ "$name" == "MEMORY.md" ]] && continue
 
         # Extract description from frontmatter if available
         description="$(sed -n '/^---$/,/^---$/{ /^description:/{ s/^description: *//; p; q; } }' "$f")"
-        desired["$name"]="- [$name]($name) — ${description:-shared memory}"
-    done
-    [[ "${#desired[@]}" -gt 0 ]] || return 0
+        names+=("$name")
+        hooks+=("- [$name]($name) — ${description:-shared memory}")
+    done < <(printf '%s\n' "$memory_src"/*.md | LC_ALL=C sort)
+    [[ "${#names[@]}" -gt 0 ]] || return 0
 
-    # Refresh the deploy-style entries already present (link text == file name),
-    # leaving hand-written entries for the same file untouched.
-    local entry_re='^- \[([^]]+)\]\(([^)]+)\)' line text link
-    local -A seen=()
-    local tmp_index="$memory_index.tmp" changed=0
-    : > "$tmp_index"
+    local i n line hook new_index="" refreshed=() appended=() linked=""
     if [[ -f "$memory_index" ]]; then
         while IFS= read -r line || [[ -n "$line" ]]; do
-            if [[ $line =~ $entry_re ]]; then
-                text="${BASH_REMATCH[1]}"; link="${BASH_REMATCH[2]}"
-                if [[ "$text" == "$link" && -n "${desired[$link]+x}" ]]; then
-                    seen["$link"]=1
-                    if [[ "$line" != "${desired[$link]}" ]]; then
-                        line="${desired[$link]}"
-                        changed=1
-                        if $DRY_RUN; then
-                            log "[dry-run] would refresh: $link description in MEMORY.md"
-                        else
-                            log "refreshed: $link description in MEMORY.md"
-                        fi
+            for i in "${!names[@]}"; do
+                n="${names[$i]}"; hook="${hooks[$i]}"
+                # Deploy-style entry: exactly what this function writes, so a hook
+                # the author reworded into their own wording is left alone.
+                if [[ "$line" == "- [$n]($n) — "* ]]; then
+                    linked+=" $n"
+                    if [[ "$line" != "$hook" ]]; then
+                        line="$hook"
+                        refreshed+=("$n")
                     fi
+                    break
                 fi
-            fi
-            printf '%s\n' "$line" >> "$tmp_index"
+                # Any other entry pointing at the same file still counts as indexed,
+                # so we never stack a second hook next to a hand-written one.
+                if [[ "$line" == *"]($n)"* ]]; then
+                    linked+=" $n"
+                    break
+                fi
+            done
+            new_index+="$line"$'\n'
         done < "$memory_index"
     fi
 
-    # Append the ones this index does not carry yet
-    for name in "${!desired[@]}"; do
-        [[ -n "${seen[$name]+x}" ]] && continue
-        printf '%s\n' "${desired[$name]}" >> "$tmp_index"
-        changed=1
+    for i in "${!names[@]}"; do
+        n="${names[$i]}"
+        [[ "$linked" == *" $n"* ]] && continue
+        new_index+="${hooks[$i]}"$'\n'
+        appended+=("$n")
+    done
+
+    [[ "${#refreshed[@]}" -eq 0 && "${#appended[@]}" -eq 0 ]] && return 0
+
+    for n in ${refreshed[@]+"${refreshed[@]}"}; do
         if $DRY_RUN; then
-            log "[dry-run] would add $name to MEMORY.md"
+            log "[dry-run] would refresh: $n description in MEMORY.md"
         else
-            log "indexed: $name in MEMORY.md"
+            log "refreshed: $n description in MEMORY.md"
+        fi
+    done
+    for n in ${appended[@]+"${appended[@]}"}; do
+        if $DRY_RUN; then
+            log "[dry-run] would add $n to MEMORY.md"
+        else
+            log "indexed: $n in MEMORY.md"
         fi
     done
 
-    if [[ "$changed" -eq 1 ]] && ! $DRY_RUN; then
-        mv "$tmp_index" "$memory_index"
-    else
-        rm -f "$tmp_index"
-    fi
+    # Write through the existing path: no temp file to clobber, and a MEMORY.md
+    # that is a symlink or is mode-protected keeps its inode and its mode.
+    $DRY_RUN || printf '%s' "$new_index" > "$memory_index"
 }
 
 # Deploy shared config (rules, commands, skills) to a target project directory

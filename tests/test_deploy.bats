@@ -333,3 +333,87 @@ load test_helper/setup
     grep -qF "— reworded hook" "$index"
     grep -qF "[Team, my own words](team.md) — kept" "$index"
 }
+
+@test "does not stack a second hook next to a hand-written entry" {
+    mkdir -p "$CLAUDE_CONFIG_DIR/shared/memory"
+    printf -- '---\nname: team\ndescription: deployed hook\n---\n\n# Team info\n' \
+        > "$CLAUDE_CONFIG_DIR/shared/memory/team.md"
+    echo 'DEPLOY_MEMORY=true' >> "$CLAUDE_CONFIG_DIR/config.sh"
+
+    run "$CLAUDE_CONFIG_DIR/deploy.sh"
+    [ "$status" -eq 0 ]
+
+    encoded=$(echo "$TEST_WORKSPACE/project-a" | sed 's|/|-|g')
+    index="$CLAUDE_HOME/projects/$encoded/memory/MEMORY.md"
+
+    # The author replaces the deployed hook with their own wording
+    printf '# Memory Index\n\n- [Team, my own words](team.md) — kept\n' > "$index"
+
+    printf -- '---\nname: team\ndescription: reworded hook\n---\n\n# Team info\n' \
+        > "$CLAUDE_CONFIG_DIR/shared/memory/team.md"
+    run "$CLAUDE_CONFIG_DIR/deploy.sh"
+    [ "$status" -eq 0 ]
+
+    [ "$(grep -cF 'team.md' "$index")" -eq 1 ]
+    grep -qF "[Team, my own words](team.md) — kept" "$index"
+}
+
+@test "indexes a memory whose name holds brackets exactly once per deploy" {
+    mkdir -p "$CLAUDE_CONFIG_DIR/shared/memory"
+    printf -- '---\nname: odd\ndescription: bracket hook\n---\n\n# Odd\n' \
+        > "$CLAUDE_CONFIG_DIR/shared/memory/note(1).md"
+    echo 'DEPLOY_MEMORY=true' >> "$CLAUDE_CONFIG_DIR/config.sh"
+
+    run "$CLAUDE_CONFIG_DIR/deploy.sh"
+    [ "$status" -eq 0 ]
+    run "$CLAUDE_CONFIG_DIR/deploy.sh"
+    [ "$status" -eq 0 ]
+
+    encoded=$(echo "$TEST_WORKSPACE/project-a" | sed 's|/|-|g')
+    index="$CLAUDE_HOME/projects/$encoded/memory/MEMORY.md"
+    [ "$(grep -cF 'note(1).md' "$index")" -eq 1 ]
+}
+
+@test "a redeploy with nothing changed leaves MEMORY.md byte-identical" {
+    mkdir -p "$CLAUDE_CONFIG_DIR/shared/memory"
+    printf -- '---\nname: team\ndescription: stable hook\n---\n\n# Team info\n' \
+        > "$CLAUDE_CONFIG_DIR/shared/memory/team.md"
+    echo 'DEPLOY_MEMORY=true' >> "$CLAUDE_CONFIG_DIR/config.sh"
+
+    run "$CLAUDE_CONFIG_DIR/deploy.sh"
+    [ "$status" -eq 0 ]
+
+    encoded=$(echo "$TEST_WORKSPACE/project-a" | sed 's|/|-|g')
+    index="$CLAUDE_HOME/projects/$encoded/memory/MEMORY.md"
+
+    # A section of the author's own, which the redeploy must not disturb either
+    printf '\n## My own notes\n\n- [Local note](local.md) — mine\n' >> "$index"
+    before=$(md5sum < "$index")
+
+    run "$CLAUDE_CONFIG_DIR/deploy.sh"
+    [ "$status" -eq 0 ]
+    [ "$(md5sum < "$index")" = "$before" ]
+}
+
+@test "dry-run neither rewrites MEMORY.md nor clobbers a MEMORY.md.tmp" {
+    mkdir -p "$CLAUDE_CONFIG_DIR/shared/memory"
+    printf -- '---\nname: team\ndescription: first hook\n---\n\n# Team info\n' \
+        > "$CLAUDE_CONFIG_DIR/shared/memory/team.md"
+    echo 'DEPLOY_MEMORY=true' >> "$CLAUDE_CONFIG_DIR/config.sh"
+
+    run "$CLAUDE_CONFIG_DIR/deploy.sh"
+    [ "$status" -eq 0 ]
+
+    encoded=$(echo "$TEST_WORKSPACE/project-a" | sed 's|/|-|g')
+    index="$CLAUDE_HOME/projects/$encoded/memory/MEMORY.md"
+    echo "not deploy's file" > "$index.tmp"
+    before=$(md5sum < "$index")
+
+    printf -- '---\nname: team\ndescription: second hook\n---\n\n# Team info\n' \
+        > "$CLAUDE_CONFIG_DIR/shared/memory/team.md"
+    run "$CLAUDE_CONFIG_DIR/deploy.sh" --dry-run
+    [ "$status" -eq 0 ]
+
+    [ "$(md5sum < "$index")" = "$before" ]
+    [ "$(cat "$index.tmp")" = "not deploy's file" ]
+}
