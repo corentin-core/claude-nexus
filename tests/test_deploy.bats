@@ -285,3 +285,51 @@ load test_helper/setup
     run "$CLAUDE_CONFIG_DIR/deploy.sh"
     [ "$status" -eq 0 ]
 }
+
+@test "refreshes the MEMORY.md hook when a shared memory description changes" {
+    mkdir -p "$CLAUDE_CONFIG_DIR/shared/memory"
+    printf -- '---\nname: team\ndescription: first hook\n---\n\n# Team info\n' \
+        > "$CLAUDE_CONFIG_DIR/shared/memory/team.md"
+    echo 'DEPLOY_MEMORY=true' >> "$CLAUDE_CONFIG_DIR/config.sh"
+
+    run "$CLAUDE_CONFIG_DIR/deploy.sh"
+    [ "$status" -eq 0 ]
+
+    encoded=$(echo "$TEST_WORKSPACE/project-a" | sed 's|/|-|g')
+    index="$CLAUDE_HOME/projects/$encoded/memory/MEMORY.md"
+    grep -qF "— first hook" "$index"
+
+    # Reword the description and redeploy: the already-indexed entry follows
+    printf -- '---\nname: team\ndescription: second hook\n---\n\n# Team info\n' \
+        > "$CLAUDE_CONFIG_DIR/shared/memory/team.md"
+    run "$CLAUDE_CONFIG_DIR/deploy.sh"
+    [ "$status" -eq 0 ]
+
+    grep -qF "— second hook" "$index"
+    ! grep -qF "— first hook" "$index"
+    [ "$(grep -c "\[team.md\](team.md)" "$index")" -eq 1 ]
+}
+
+@test "description refresh leaves a hand-written entry for the same file alone" {
+    mkdir -p "$CLAUDE_CONFIG_DIR/shared/memory"
+    printf -- '---\nname: team\ndescription: deployed hook\n---\n\n# Team info\n' \
+        > "$CLAUDE_CONFIG_DIR/shared/memory/team.md"
+    echo 'DEPLOY_MEMORY=true' >> "$CLAUDE_CONFIG_DIR/config.sh"
+
+    run "$CLAUDE_CONFIG_DIR/deploy.sh"
+    [ "$status" -eq 0 ]
+
+    encoded=$(echo "$TEST_WORKSPACE/project-a" | sed 's|/|-|g')
+    index="$CLAUDE_HOME/projects/$encoded/memory/MEMORY.md"
+
+    # Link text differs from the target, so this one is the author's, not deploy's
+    echo "- [Team, my own words](team.md) — kept" >> "$index"
+
+    printf -- '---\nname: team\ndescription: reworded hook\n---\n\n# Team info\n' \
+        > "$CLAUDE_CONFIG_DIR/shared/memory/team.md"
+    run "$CLAUDE_CONFIG_DIR/deploy.sh"
+    [ "$status" -eq 0 ]
+
+    grep -qF "— reworded hook" "$index"
+    grep -qF "[Team, my own words](team.md) — kept" "$index"
+}
