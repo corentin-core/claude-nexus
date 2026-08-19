@@ -242,24 +242,66 @@ deploy_memory() {
         fi
     fi
 
-    # Add missing shared entries
+    # Upsert shared entries. The index hook is what decides whether a memory gets
+    # opened at all, so a drifting description has to reach the already-indexed
+    # projects too, not just the next new one.
+    local -A desired=()
     local f name description
     for f in "$memory_src"/*.md; do
         [[ -f "$f" ]] || continue
         name="$(basename "$f")"
         [[ "$name" == "MEMORY.md" ]] && continue
 
-        if ! grep -qF "$name" "$memory_index" 2>/dev/null; then
-            # Extract description from frontmatter if available
-            description="$(sed -n '/^---$/,/^---$/{ /^description:/{ s/^description: *//; p; q; } }' "$f")"
-            if $DRY_RUN; then
-                log "[dry-run] would add $name to MEMORY.md"
-            else
-                echo "- [$name]($name) — ${description:-shared memory}" >> "$memory_index"
-                log "indexed: $name in MEMORY.md"
+        # Extract description from frontmatter if available
+        description="$(sed -n '/^---$/,/^---$/{ /^description:/{ s/^description: *//; p; q; } }' "$f")"
+        desired["$name"]="- [$name]($name) — ${description:-shared memory}"
+    done
+    [[ "${#desired[@]}" -gt 0 ]] || return 0
+
+    # Refresh the deploy-style entries already present (link text == file name),
+    # leaving hand-written entries for the same file untouched.
+    local entry_re='^- \[([^]]+)\]\(([^)]+)\)' line text link
+    local -A seen=()
+    local tmp_index="$memory_index.tmp" changed=0
+    : > "$tmp_index"
+    if [[ -f "$memory_index" ]]; then
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            if [[ $line =~ $entry_re ]]; then
+                text="${BASH_REMATCH[1]}"; link="${BASH_REMATCH[2]}"
+                if [[ "$text" == "$link" && -n "${desired[$link]+x}" ]]; then
+                    seen["$link"]=1
+                    if [[ "$line" != "${desired[$link]}" ]]; then
+                        line="${desired[$link]}"
+                        changed=1
+                        if $DRY_RUN; then
+                            log "[dry-run] would refresh: $link description in MEMORY.md"
+                        else
+                            log "refreshed: $link description in MEMORY.md"
+                        fi
+                    fi
+                fi
             fi
+            printf '%s\n' "$line" >> "$tmp_index"
+        done < "$memory_index"
+    fi
+
+    # Append the ones this index does not carry yet
+    for name in "${!desired[@]}"; do
+        [[ -n "${seen[$name]+x}" ]] && continue
+        printf '%s\n' "${desired[$name]}" >> "$tmp_index"
+        changed=1
+        if $DRY_RUN; then
+            log "[dry-run] would add $name to MEMORY.md"
+        else
+            log "indexed: $name in MEMORY.md"
         fi
     done
+
+    if [[ "$changed" -eq 1 ]] && ! $DRY_RUN; then
+        mv "$tmp_index" "$memory_index"
+    else
+        rm -f "$tmp_index"
+    fi
 }
 
 # Deploy shared config (rules, commands, skills) to a target project directory
