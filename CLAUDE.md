@@ -14,7 +14,7 @@ tests/           <- bats test suite
 
 ## Key files
 
-- `deploy.sh` — main deployment script (creates symlinks)
+- `deploy.sh` — main deployment script (hardlinks rules, symlinks the rest)
 - `config.sh` — user configuration (copy from `config.example.sh`, gitignored)
 
 ## Conventions

@@ -2,10 +2,10 @@
 #
 # deploy.sh - Deploy Claude Code configuration to all sibling projects
 #
-# Symlinks shared rules, commands, skills, and settings into each project's
-# .claude/ directory. Idempotent: safe to run multiple times.
+# Hardlinks shared rules, and symlinks commands, skills and settings, into each
+# project's .claude/ directory. Idempotent: safe to run multiple times.
 #
-# Usage: ./deploy.sh [--dry-run]
+# Usage: ./deploy.sh [--dry-run | --relink]
 #
 set -euo pipefail
 
@@ -40,6 +40,15 @@ fi
 
 # shellcheck source=lib/deploy-lib.sh
 source "$SCRIPT_DIR/lib/deploy-lib.sh"
+
+# A git hook runs this after a checkout of the config repo: it only re-links
+# the rules a checkout rewrote, much faster than a full deploy.
+if [[ "${1:-}" == "--relink" ]]; then
+    relink_rules
+    exit 0
+fi
+
+install_relink_hooks
 
 # ─── 1. Parent CLAUDE.md ─────────────────────────────────────────────────────
 
@@ -76,6 +85,7 @@ for target_dir in "$BASE_DIR"/*/; do
 
     # Clean stale symlinks
     clean_stale_symlinks "$target_dir/.claude/rules"
+    clean_stale_hardlinks "$target_dir/.claude/rules"
     clean_stale_symlinks "$target_dir/.claude/commands"
     clean_stale_skills "$target_dir/.claude/skills"
 

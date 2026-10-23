@@ -7,9 +7,10 @@ load test_helper/setup
 @test "deploys shared rules to all git repos" {
     run "$CLAUDE_CONFIG_DIR/deploy.sh"
     [ "$status" -eq 0 ]
-    [ -L "$TEST_WORKSPACE/project-a/.claude/rules/git-conventions.md" ]
-    [ -L "$TEST_WORKSPACE/project-a/.claude/rules/testing.md" ]
-    [ -L "$TEST_WORKSPACE/project-b/.claude/rules/git-conventions.md" ]
+    [ ! -L "$TEST_WORKSPACE/project-a/.claude/rules/git-conventions.md" ]
+    [ "$TEST_WORKSPACE/project-a/.claude/rules/git-conventions.md" -ef "$CLAUDE_CONFIG_DIR/shared/rules/git-conventions.md" ]
+    [ "$TEST_WORKSPACE/project-a/.claude/rules/testing.md" -ef "$CLAUDE_CONFIG_DIR/shared/rules/testing.md" ]
+    [ "$TEST_WORKSPACE/project-b/.claude/rules/git-conventions.md" -ef "$CLAUDE_CONFIG_DIR/shared/rules/git-conventions.md" ]
 }
 
 @test "deploys shared commands to all git repos" {
@@ -87,7 +88,7 @@ load test_helper/setup
     echo 'EXCLUDE_PROJECTS=("project-b")' >> "$CLAUDE_CONFIG_DIR/config.sh"
     run "$CLAUDE_CONFIG_DIR/deploy.sh"
     [ "$status" -eq 0 ]
-    [ -L "$TEST_WORKSPACE/project-a/.claude/rules/git-conventions.md" ]
+    [ -f "$TEST_WORKSPACE/project-a/.claude/rules/git-conventions.md" ]
     [ ! -d "$TEST_WORKSPACE/project-b/.claude" ]
 }
 
@@ -108,7 +109,7 @@ load test_helper/setup
 @test "removes stale symlinks pointing to deleted config" {
     # Deploy first
     "$CLAUDE_CONFIG_DIR/deploy.sh"
-    [ -L "$TEST_WORKSPACE/project-a/.claude/rules/testing.md" ]
+    [ -f "$TEST_WORKSPACE/project-a/.claude/rules/testing.md" ]
 
     # Remove the source file
     rm "$CLAUDE_CONFIG_DIR/shared/rules/testing.md"
@@ -141,7 +142,7 @@ load test_helper/setup
     echo "# Custom rule for A" > "$CLAUDE_CONFIG_DIR/projects/project-a/rules/custom.md"
     run "$CLAUDE_CONFIG_DIR/deploy.sh"
     [ "$status" -eq 0 ]
-    [ -L "$TEST_WORKSPACE/project-a/.claude/rules/custom.md" ]
+    [ "$TEST_WORKSPACE/project-a/.claude/rules/custom.md" -ef "$CLAUDE_CONFIG_DIR/projects/project-a/rules/custom.md" ]
     [ ! -e "$TEST_WORKSPACE/project-b/.claude/rules/custom.md" ]
 }
 
@@ -189,7 +190,73 @@ load test_helper/setup
     "$CLAUDE_CONFIG_DIR/deploy.sh"
     run "$CLAUDE_CONFIG_DIR/deploy.sh"
     [ "$status" -eq 0 ]
-    [ -L "$TEST_WORKSPACE/project-a/.claude/rules/git-conventions.md" ]
+    [ "$TEST_WORKSPACE/project-a/.claude/rules/git-conventions.md" -ef "$CLAUDE_CONFIG_DIR/shared/rules/git-conventions.md" ]
+    [ "$(wc -l < "$CLAUDE_CONFIG_DIR/.deployed-rules")" -eq 4 ]
+}
+
+# ─── Rule hardlinks ──────────────────────────────────────────────────────────
+
+@test "replaces a symlinked rule with a hardlink" {
+    mkdir -p "$TEST_WORKSPACE/project-a/.claude/rules"
+    ln -s "$CLAUDE_CONFIG_DIR/shared/rules/testing.md" "$TEST_WORKSPACE/project-a/.claude/rules/testing.md"
+    run "$CLAUDE_CONFIG_DIR/deploy.sh"
+    [ "$status" -eq 0 ]
+    [ ! -L "$TEST_WORKSPACE/project-a/.claude/rules/testing.md" ]
+    [ "$TEST_WORKSPACE/project-a/.claude/rules/testing.md" -ef "$CLAUDE_CONFIG_DIR/shared/rules/testing.md" ]
+}
+
+@test "hardlinks the target of a rule symlinked inside the config repo" {
+    mkdir -p "$CLAUDE_CONFIG_DIR/examples/rules"
+    echo "# Python rule" > "$CLAUDE_CONFIG_DIR/examples/rules/python.md"
+    ln -s ../../examples/rules/python.md "$CLAUDE_CONFIG_DIR/shared/rules/python.md"
+    run "$CLAUDE_CONFIG_DIR/deploy.sh"
+    [ "$status" -eq 0 ]
+    [ ! -L "$TEST_WORKSPACE/project-a/.claude/rules/python.md" ]
+    grep -q "Python rule" "$TEST_WORKSPACE/project-a/.claude/rules/python.md"
+    run "$CLAUDE_CONFIG_DIR/deploy.sh" --relink
+    ! echo "$output" | grep -q "relinked"
+}
+
+@test "a project rule overrides the shared rule of the same name" {
+    mkdir -p "$CLAUDE_CONFIG_DIR/projects/project-a/rules"
+    echo "# Testing for A" > "$CLAUDE_CONFIG_DIR/projects/project-a/rules/testing.md"
+    "$CLAUDE_CONFIG_DIR/deploy.sh"
+    run "$CLAUDE_CONFIG_DIR/deploy.sh"
+    [ "$status" -eq 0 ]
+    [ "$TEST_WORKSPACE/project-a/.claude/rules/testing.md" -ef "$CLAUDE_CONFIG_DIR/projects/project-a/rules/testing.md" ]
+    [ "$TEST_WORKSPACE/project-b/.claude/rules/testing.md" -ef "$CLAUDE_CONFIG_DIR/shared/rules/testing.md" ]
+}
+
+@test "--relink re-links a rule whose source a checkout replaced" {
+    "$CLAUDE_CONFIG_DIR/deploy.sh"
+    rm "$CLAUDE_CONFIG_DIR/shared/rules/testing.md"
+    echo "# Testing rule, v2" > "$CLAUDE_CONFIG_DIR/shared/rules/testing.md"
+    [ ! "$TEST_WORKSPACE/project-a/.claude/rules/testing.md" -ef "$CLAUDE_CONFIG_DIR/shared/rules/testing.md" ]
+    run "$CLAUDE_CONFIG_DIR/deploy.sh" --relink
+    [ "$status" -eq 0 ]
+    [ "$TEST_WORKSPACE/project-a/.claude/rules/testing.md" -ef "$CLAUDE_CONFIG_DIR/shared/rules/testing.md" ]
+    grep -q "v2" "$TEST_WORKSPACE/project-b/.claude/rules/testing.md"
+}
+
+@test "--relink removes a rule whose source was deleted" {
+    "$CLAUDE_CONFIG_DIR/deploy.sh"
+    rm "$CLAUDE_CONFIG_DIR/shared/rules/testing.md"
+    run "$CLAUDE_CONFIG_DIR/deploy.sh" --relink
+    [ "$status" -eq 0 ]
+    [ ! -e "$TEST_WORKSPACE/project-a/.claude/rules/testing.md" ]
+    ! grep -q "testing.md" "$CLAUDE_CONFIG_DIR/.deployed-rules"
+}
+
+@test "installs the relink hooks and leaves a hook of your own alone" {
+    git -C "$CLAUDE_CONFIG_DIR" init -q
+    echo "#!/bin/sh" > "$CLAUDE_CONFIG_DIR/.git/hooks/post-checkout"
+    run "$CLAUDE_CONFIG_DIR/deploy.sh"
+    [ "$status" -eq 0 ]
+    [ -x "$CLAUDE_CONFIG_DIR/.git/hooks/post-merge" ]
+    grep -q "deploy.sh\" --relink" "$CLAUDE_CONFIG_DIR/.git/hooks/post-merge"
+    [ -x "$CLAUDE_CONFIG_DIR/.git/hooks/post-rewrite" ]
+    ! grep -q "relink" "$CLAUDE_CONFIG_DIR/.git/hooks/post-checkout"
+    echo "$output" | grep -q "hook of your own"
 }
 
 # ─── Memory deployment ───────────────────────────────────────────────────────

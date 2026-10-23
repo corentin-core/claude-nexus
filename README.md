@@ -28,8 +28,10 @@ workspace/                  ← any directory
 └── my-cli/
 ```
 
-`deploy.sh` scans sibling directories for git repos and symlinks your shared config
+`deploy.sh` scans sibling directories for git repos and links your shared config
 into each one's `.claude/` directory.
+Rules are hardlinked, since Claude Code skips a rule symlinked to outside the project.
+Everything else is symlinked.
 
 | Source in claude-nexus | Deployed to |
 |---|---|
@@ -169,7 +171,8 @@ description: What this skill does
 - **Auto-discovery**: deploys to all sibling git repos automatically
 - **Idempotent**: safe to run multiple times
 - **Non-destructive**: never overwrites real (non-symlink) files
-- **Self-cleaning**: removes stale symlinks when source files are deleted
+- **Self-cleaning**: removes stale symlinks and rules when source files are deleted
+- **Relinked after a checkout**: git hooks in the config repo run `deploy.sh --relink`, which re-links each rule whose hardlink a pull, a checkout or a rebase broke
 - **Auto-gitignore**: adds `.claude/` to each project's `.gitignore`
 - **macOS compatible**: no GNU coreutils required
 
