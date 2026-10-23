@@ -259,6 +259,18 @@ load test_helper/setup
     echo "$output" | grep -q "hook of your own"
 }
 
+@test "post-checkout skips a rebase, and post-rewrite relinks at its end" {
+    git -C "$CLAUDE_CONFIG_DIR" init -q
+    "$CLAUDE_CONFIG_DIR/deploy.sh"
+    rm "$CLAUDE_CONFIG_DIR/shared/rules/testing.md"
+    echo "# Testing rule, v2" > "$CLAUDE_CONFIG_DIR/shared/rules/testing.md"
+    mkdir "$CLAUDE_CONFIG_DIR/.git/rebase-merge"
+    (cd "$CLAUDE_CONFIG_DIR" && .git/hooks/post-checkout)
+    [ ! "$TEST_WORKSPACE/project-a/.claude/rules/testing.md" -ef "$CLAUDE_CONFIG_DIR/shared/rules/testing.md" ]
+    (cd "$CLAUDE_CONFIG_DIR" && .git/hooks/post-rewrite)
+    [ "$TEST_WORKSPACE/project-a/.claude/rules/testing.md" -ef "$CLAUDE_CONFIG_DIR/shared/rules/testing.md" ]
+}
+
 # ─── Memory deployment ───────────────────────────────────────────────────────
 
 @test "deploys memory when enabled" {
