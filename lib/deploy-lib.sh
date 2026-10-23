@@ -219,7 +219,16 @@ install_relink_hooks() {
             continue
         fi
         mkdir -p "$hooks_dir"
-        printf '#!/bin/sh\n"%s/deploy.sh" --relink > /dev/null || true\n' "$SCRIPT_DIR" > "$path"
+        local guard=""
+        # A relink as a rebase starts changes the ctime of a source, which the rebase
+        # then reads as a local change and stops on. post-rewrite relinks at its end.
+        if [[ "$hook" == post-checkout ]]; then
+            # shellcheck disable=SC2016  # the hook expands them, not this shell
+            guard='[ -d "$(git rev-parse --git-path rebase-merge)" ] && exit 0
+[ -d "$(git rev-parse --git-path rebase-apply)" ] && exit 0
+'
+        fi
+        printf '#!/bin/sh\n%s"%s/deploy.sh" --relink > /dev/null || true\n' "$guard" "$SCRIPT_DIR" > "$path"
         chmod +x "$path"
     done
 }
