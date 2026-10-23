@@ -259,6 +259,15 @@ load test_helper/setup
     echo "$output" | grep -q "hook of your own"
 }
 
+@test "rewrites a relink hook it installed earlier" {
+    git -C "$CLAUDE_CONFIG_DIR" init -q
+    printf '#!/bin/sh\n"%s/deploy.sh" --relink > /dev/null || true\n' "$CLAUDE_CONFIG_DIR" > "$CLAUDE_CONFIG_DIR/.git/hooks/post-checkout"
+    run "$CLAUDE_CONFIG_DIR/deploy.sh"
+    [ "$status" -eq 0 ]
+    ! echo "$output" | grep -q "hook of your own"
+    grep -q "rebase-merge" "$CLAUDE_CONFIG_DIR/.git/hooks/post-checkout"
+}
+
 @test "post-checkout skips a rebase, and post-rewrite relinks at its end" {
     git -C "$CLAUDE_CONFIG_DIR" init -q
     "$CLAUDE_CONFIG_DIR/deploy.sh"

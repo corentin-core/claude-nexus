@@ -210,7 +210,7 @@ install_relink_hooks() {
 
     for hook in post-merge post-checkout post-rewrite; do
         path="$hooks_dir/$hook"
-        if [[ -e "$path" ]] && ! grep -q 'deploy.sh --relink' "$path"; then
+        if [[ -e "$path" ]] && ! grep -qF 'deploy.sh" --relink' "$path"; then
             warn "skipping $path (hook of your own: add '\"$SCRIPT_DIR/deploy.sh\" --relink' to it)"
             continue
         fi
