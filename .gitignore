@@ -1,6 +1,7 @@
 config.sh
 CLAUDE.local.md
 .deployed-mcps
+.deployed-rules
 .idea/
 .vscode/
 *.swp

@@ -95,6 +95,135 @@ clean_stale_symlinks() {
     done
 }
 
+# ─── Rule hardlinks ──────────────────────────────────────────────────────────
+
+# Claude Code skips a rule file that is a symlink to outside the project, so
+# rules are hardlinked. A hardlink does not name its source, so the manifest
+# records each one as "dst<TAB>src", which tells a deployed rule from a real one.
+RULES_MANIFEST="${RULES_MANIFEST:-$SCRIPT_DIR/.deployed-rules}"
+
+manifest_src() {
+    [[ -f "$RULES_MANIFEST" ]] || return 0
+    awk -F'\t' -v dst="$1" '$1 == dst { print $2; exit }' "$RULES_MANIFEST"
+}
+
+manifest_set() {
+    local dst="$1" src="$2"
+    [[ "$(manifest_src "$dst")" == "$src" ]] && return 0
+    manifest_del "$dst"
+    printf '%s\t%s\n' "$dst" "$src" >> "$RULES_MANIFEST"
+}
+
+manifest_del() {
+    [[ -f "$RULES_MANIFEST" ]] || return 0
+    local tmp
+    tmp="$(mktemp "$RULES_MANIFEST.XXXXXX")"
+    awk -F'\t' -v dst="$1" '$1 != dst' "$RULES_MANIFEST" > "$tmp"
+    mv "$tmp" "$RULES_MANIFEST"
+}
+
+# A hardlink needs one filesystem; a copy is the fallback across two. -L links
+# the target of a symlinked source, whose relative path would break in a project.
+hardlink_or_copy() {
+    ln -fL "$1" "$2" 2>/dev/null || cp -fL "$1" "$2"
+}
+
+# Hardlink a rule, replacing a symlink into SCRIPT_DIR or a rule the manifest
+# lists. Never overwrites a real file.
+safe_hardlink() {
+    local src="$1"
+    local dst="$2"
+
+    if [[ -L "$dst" ]]; then
+        local current_target
+        current_target="$(resolve_path "$dst" 2>/dev/null || true)"
+        if [[ "$current_target" != "$SCRIPT_DIR"/* ]]; then
+            warn "skipping $dst (symlink to external target: $current_target)"
+            return 0
+        fi
+    elif [[ -e "$dst" ]]; then
+        if [[ "$dst" -ef "$src" ]]; then
+            $DRY_RUN || manifest_set "$dst" "$src"
+            return 0
+        fi
+        if [[ -z "$(manifest_src "$dst")" ]]; then
+            warn "skipping $dst (real file exists)"
+            return 0
+        fi
+    fi
+
+    if $DRY_RUN; then
+        log "[dry-run] would hardlink: $dst → $src"
+    else
+        mkdir -p "$(dirname "$dst")"
+        rm -f "$dst"
+        hardlink_or_copy "$src" "$dst"
+        manifest_set "$dst" "$src"
+        log "hardlinked: $dst"
+    fi
+}
+
+# Remove the rules of a directory whose source was deleted
+clean_stale_hardlinks() {
+    local dir="$1"
+    [[ -f "$RULES_MANIFEST" ]] || return 0
+
+    local dst src
+    while IFS=$'\t' read -r dst src; do
+        [[ "$(dirname "$dst")" == "$dir" ]] || continue
+        [[ -e "$src" ]] && continue
+        if $DRY_RUN; then
+            log "[dry-run] would remove stale rule: $dst"
+        else
+            rm -f "$dst"
+            manifest_del "$dst"
+            log "removed stale: $dst"
+        fi
+    done < <(cat "$RULES_MANIFEST")
+}
+
+# Re-link every rule of the manifest whose hardlink a git checkout broke: git
+# replaces a file it rewrites, and the deployed copy keeps the old inode.
+relink_rules() {
+    [[ -f "$RULES_MANIFEST" ]] || return 0
+
+    local dst src
+    while IFS=$'\t' read -r dst src; do
+        if [[ ! -e "$src" ]]; then
+            rm -f "$dst"
+            manifest_del "$dst"
+            log "removed stale: $dst"
+        elif [[ -d "$(dirname "$dst")" ]] && [[ ! "$dst" -ef "$src" ]]; then
+            rm -f "$dst"
+            hardlink_or_copy "$src" "$dst"
+            log "relinked: $dst"
+        fi
+    done < <(cat "$RULES_MANIFEST")
+}
+
+# Install git hooks that run `deploy.sh --relink` after a pull, a checkout or a
+# rebase of the config repo. A hook of your own is left alone.
+install_relink_hooks() {
+    local hooks_dir hook path
+    hooks_dir="$(git -C "$SCRIPT_DIR" rev-parse --git-path hooks 2>/dev/null)" || return 0
+    [[ "$hooks_dir" == /* ]] || hooks_dir="$SCRIPT_DIR/$hooks_dir"
+
+    for hook in post-merge post-checkout post-rewrite; do
+        path="$hooks_dir/$hook"
+        if [[ -e "$path" ]] && ! grep -q 'deploy.sh --relink' "$path"; then
+            warn "skipping $path (hook of your own: add '\"$SCRIPT_DIR/deploy.sh\" --relink' to it)"
+            continue
+        fi
+        if $DRY_RUN; then
+            log "[dry-run] would install: $path"
+            continue
+        fi
+        mkdir -p "$hooks_dir"
+        printf '#!/bin/sh\n"%s/deploy.sh" --relink > /dev/null || true\n' "$SCRIPT_DIR" > "$path"
+        chmod +x "$path"
+    done
+}
+
 # ─── Git integration ─────────────────────────────────────────────────────────
 
 # Ensure .claude/ is in the project's .gitignore
@@ -131,6 +260,20 @@ deploy_dir() {
     for f in "$src_dir"/*.md; do
         [[ -f "$f" ]] || continue
         safe_link "$f" "$dst_dir/$(basename "$f")"
+    done
+}
+
+# Deploy all .md files from a source dir as hardlinks in a rules dir
+deploy_rules_dir() {
+    local src_dir="$1"
+    local dst_dir="$2"
+
+    [[ -d "$src_dir" ]] || return 0
+
+    local f
+    for f in "$src_dir"/*.md; do
+        [[ -f "$f" ]] || continue
+        safe_hardlink "$f" "$dst_dir/$(basename "$f")"
     done
 }
 
@@ -328,7 +471,7 @@ deploy_shared_config() {
     [[ -d "$src_dir" ]] || return 0
 
     mkdir -p "$target_dir/.claude/rules" "$target_dir/.claude/commands"
-    deploy_dir "$src_dir/rules" "$target_dir/.claude/rules"
+    deploy_rules_dir "$src_dir/rules" "$target_dir/.claude/rules"
     deploy_dir "$src_dir/commands" "$target_dir/.claude/commands"
     deploy_skills "$src_dir/skills" "$target_dir/.claude/skills"
 }
@@ -357,7 +500,7 @@ deploy_project_overrides() {
         done
     done
 
-    deploy_dir "$project_config_dir/rules" "$target_dir/.claude/rules"
+    deploy_rules_dir "$project_config_dir/rules" "$target_dir/.claude/rules"
     deploy_dir "$project_config_dir/commands" "$target_dir/.claude/commands"
     deploy_skills "$project_config_dir/skills" "$target_dir/.claude/skills"
 
