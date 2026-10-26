@@ -122,6 +122,19 @@ manifest_del() {
     mv "$tmp" "$RULES_MANIFEST"
 }
 
+# Drop the entries whose directory is gone, such as the rules of a removed worktree.
+prune_manifest() {
+    [[ -f "$RULES_MANIFEST" ]] || return 0
+    local tmp dst src
+    tmp="$(mktemp "$RULES_MANIFEST.XXXXXX")"
+    while IFS=$'\t' read -r dst src; do
+        if [[ -d "$(dirname "$dst")" ]]; then
+            printf '%s\t%s\n' "$dst" "$src"
+        fi
+    done < "$RULES_MANIFEST" > "$tmp"
+    mv "$tmp" "$RULES_MANIFEST"
+}
+
 # A hardlink needs one filesystem; a copy is the fallback across two. -L links
 # the target of a symlinked source, whose relative path would break in a project.
 hardlink_or_copy() {
