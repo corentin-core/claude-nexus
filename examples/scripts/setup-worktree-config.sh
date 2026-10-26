@@ -10,6 +10,9 @@
 # skills, and settings as the main repo.
 #
 # All symlinks created by deploy.sh use absolute paths, so they work as-is in worktrees.
+# Rules are hardlinked instead, like deploy.sh does, and recorded in its manifest so
+# that `deploy.sh --relink` keeps them. Run it again on an existing worktree to update
+# its config.
 #
 set -euo pipefail
 
@@ -39,6 +42,24 @@ if [[ ! -d "$WORKTREE" ]]; then
     exit 1
 fi
 
+# The script sits two levels below the config repo, whose lib is under base/ when
+# claude-nexus is a submodule.
+CONFIG_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../.." && pwd)"
+LIB_FILE="$CONFIG_DIR/lib/deploy-lib.sh"
+[[ -f "$LIB_FILE" ]] || LIB_FILE="$CONFIG_DIR/base/lib/deploy-lib.sh"
+# shellcheck disable=SC2034  # read by deploy-lib.sh
+SCRIPT_DIR="$CONFIG_DIR"
+# shellcheck disable=SC2034
+DRY_RUN=false
+# shellcheck source=/dev/null
+source "$LIB_FILE"
+
+# An older setup symlinked the whole .claude/ to the main repo's. Writing through
+# it would change the main repo.
+if [[ -L "$WORKTREE/.claude" ]]; then
+    rm "$WORKTREE/.claude"
+fi
+
 # --- Replicate .claude/ directory ---
 
 if [[ -d "$MAIN_REPO/.claude" ]]; then
@@ -56,7 +77,7 @@ if [[ -d "$MAIN_REPO/.claude" ]]; then
             # Whole directory is a symlink — copy it as-is
             target="$(readlink "${subdir%/}")"
             mkdir -p "$WORKTREE/.claude"
-            ln -sf "$target" "$WORKTREE/.claude/$dirname"
+            ln -sfn "$target" "$WORKTREE/.claude/$dirname"
             echo "  Linked .claude/$dirname -> $target"
         else
             # Regular directory containing symlinks and/or real files
@@ -64,14 +85,27 @@ if [[ -d "$MAIN_REPO/.claude" ]]; then
             for entry in "$subdir"*; do
                 [[ -e "$entry" ]] || continue
                 name="$(basename "$entry")"
+                dst="$WORKTREE/.claude/$dirname/$name"
+                src="$(manifest_src "$entry")"
+                if [[ -z "$src" && "$dirname" == "rules" && ! -L "$entry" ]]; then
+                    src="$entry"
+                fi
 
-                if [[ -L "$entry" ]]; then
+                if [[ -n "$src" && ! -e "$src" ]]; then
+                    # Deleted from the config repo: `deploy.sh --relink` drops it too
+                    rm -f "$dst"
+                elif [[ -n "$src" ]]; then
+                    # Claude Code skips a rule symlinked to outside the project
+                    rm -f "$dst"
+                    hardlink_or_copy "$src" "$dst"
+                    manifest_set "$dst" "$src"
+                elif [[ -L "$entry" ]]; then
                     # Copy symlink as-is (absolute target works in worktree)
                     target="$(readlink "$entry")"
-                    ln -sf "$target" "$WORKTREE/.claude/$dirname/$name"
+                    ln -sfn "$target" "$dst"
                 else
                     # Real file — symlink to the main repo's copy
-                    ln -sf "$entry" "$WORKTREE/.claude/$dirname/$name"
+                    ln -sfn "$entry" "$dst"
                 fi
             done
             echo "  Replicated .claude/$dirname/"

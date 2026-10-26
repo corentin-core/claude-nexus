@@ -231,7 +231,7 @@ Copy anything you like into `shared/` (or `global/`) and run `deploy.sh`.
 
 | Script | What it does |
 |---|---|
-| `setup-worktree-config.sh` | Replicate `.claude/` config into git worktrees |
+| `setup-worktree-config.sh` | Replicate `.claude/` config into git worktrees, with rules hardlinked and kept by `deploy.sh --relink` |
 
 ## Use as a submodule
 
