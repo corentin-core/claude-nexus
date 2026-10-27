@@ -183,7 +183,8 @@ clean_stale_hardlinks() {
 
     local dst src
     while IFS=$'\t' read -r dst src; do
-        [[ "$(dirname "$dst")" == "$dir" ]] || continue
+        # Not dirname: a fork per manifest line, repeated for every repo, costs seconds.
+        [[ "${dst%/*}" == "$dir" ]] || continue
         [[ -e "$src" ]] && continue
         if $DRY_RUN; then
             log "[dry-run] would remove stale rule: $dst"
@@ -206,7 +207,7 @@ relink_rules() {
             rm -f "$dst"
             manifest_del "$dst"
             log "removed stale: $dst"
-        elif [[ -d "$(dirname "$dst")" ]] && [[ ! "$dst" -ef "$src" ]]; then
+        elif [[ -d "${dst%/*}" ]] && [[ ! "$dst" -ef "$src" ]]; then
             rm -f "$dst"
             hardlink_or_copy "$src" "$dst"
             log "relinked: $dst"
