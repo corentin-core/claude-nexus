@@ -194,6 +194,24 @@ load test_helper/setup
     [ "$(wc -l < "$CLAUDE_CONFIG_DIR/.deployed-rules")" -eq 4 ]
 }
 
+@test "second deploy leaves current symlinks untouched" {
+    "$CLAUDE_CONFIG_DIR/deploy.sh"
+    run "$CLAUDE_CONFIG_DIR/deploy.sh"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"updated: "* ]]
+}
+
+@test "repoints a symlink to another source of the config" {
+    "$CLAUDE_CONFIG_DIR/deploy.sh"
+    local dst="$TEST_WORKSPACE/project-a/.claude/commands/handle-pr.md"
+    rm "$dst"
+    ln -s "$CLAUDE_CONFIG_DIR/shared/rules/testing.md" "$dst"
+    run "$CLAUDE_CONFIG_DIR/deploy.sh"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"updated: $dst"* ]]
+    [ "$(readlink "$dst")" = "$CLAUDE_CONFIG_DIR/shared/commands/handle-pr.md" ]
+}
+
 # ─── Rule hardlinks ──────────────────────────────────────────────────────────
 
 @test "replaces a symlinked rule with a hardlink" {

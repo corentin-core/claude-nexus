@@ -48,6 +48,7 @@ safe_link() {
     local dst="$2"
 
     if [[ -L "$dst" ]]; then
+        [[ "$(readlink "$dst")" == "$src" ]] && return 0
         local current_target
         current_target="$(resolve_path "$dst" 2>/dev/null || true)"
         if [[ "$current_target" == "$SCRIPT_DIR"/* ]]; then
