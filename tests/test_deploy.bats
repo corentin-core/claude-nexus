@@ -167,7 +167,32 @@ load test_helper/setup
     [ "$status" -eq 0 ]
     [ ! -L "$TEST_WORKSPACE/project-a/CLAUDE.md" ]
     grep -q "Tracked context" "$TEST_WORKSPACE/project-a/CLAUDE.md"
-    [[ "$output" == *"project-a/CLAUDE.md (tracked by the repo)"* ]]
+    [[ "$output" == *"unused: $CLAUDE_CONFIG_DIR/projects/project-a/CLAUDE.md"* ]]
+}
+
+@test "project-specific CLAUDE.md symlink is removed when the upstream branch tracks one" {
+    mkdir -p "$CLAUDE_CONFIG_DIR/projects/project-a"
+    echo "# Project A context" > "$CLAUDE_CONFIG_DIR/projects/project-a/CLAUDE.md"
+    rm -rf "$TEST_WORKSPACE/project-a/.git"
+    local repo="$TEST_WORKSPACE/project-a"
+    git -C "$repo" init -q -b work
+    git -C "$repo" -c user.name=test -c user.email=test@example.com commit -q --allow-empty -m init
+    run "$CLAUDE_CONFIG_DIR/deploy.sh"
+    [ -L "$repo/CLAUDE.md" ]
+
+    # The upstream of the branch gains a CLAUDE.md; the repo has no origin/HEAD
+    local blob tree commit
+    blob="$(echo "# Tracked context" | git -C "$repo" hash-object -w --stdin)"
+    tree="$(printf '100644 blob %s\tCLAUDE.md\n' "$blob" | git -C "$repo" mktree)"
+    commit="$(git -C "$repo" -c user.name=test -c user.email=test@example.com commit-tree "$tree" -p HEAD -m add)"
+    git -C "$repo" update-ref refs/remotes/origin/release "$commit"
+    git -C "$repo" config remote.origin.url "$TEST_WORKSPACE/nowhere"
+    git -C "$repo" config remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*"
+    git -C "$repo" branch -q --set-upstream-to=origin/release work
+
+    run "$CLAUDE_CONFIG_DIR/deploy.sh"
+    [ "$status" -eq 0 ]
+    [ ! -e "$repo/CLAUDE.md" ]
 }
 
 @test "project-specific CLAUDE.md symlink is removed when origin starts tracking one" {
