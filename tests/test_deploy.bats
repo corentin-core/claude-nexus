@@ -192,6 +192,17 @@ load test_helper/setup
     [ ! -e "$repo/CLAUDE.md" ]
 }
 
+@test "project-specific CLAUDE.md symlink is removed when its source is deleted" {
+    mkdir -p "$CLAUDE_CONFIG_DIR/projects/project-a"
+    echo "# Project A context" > "$CLAUDE_CONFIG_DIR/projects/project-a/CLAUDE.md"
+    run "$CLAUDE_CONFIG_DIR/deploy.sh"
+    [ -L "$TEST_WORKSPACE/project-a/CLAUDE.md" ]
+    rm -r "$CLAUDE_CONFIG_DIR/projects/project-a"
+    run "$CLAUDE_CONFIG_DIR/deploy.sh"
+    [ "$status" -eq 0 ]
+    [ ! -L "$TEST_WORKSPACE/project-a/CLAUDE.md" ]
+}
+
 @test "warns about name collisions" {
     mkdir -p "$CLAUDE_CONFIG_DIR/projects/project-a/rules"
     echo "# Override" > "$CLAUDE_CONFIG_DIR/projects/project-a/rules/git-conventions.md"

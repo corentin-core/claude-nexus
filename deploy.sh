@@ -88,6 +88,7 @@ for target_dir in "$BASE_DIR"/*/; do
     clean_stale_hardlinks "$target_dir/.claude/rules"
     clean_stale_symlinks "$target_dir/.claude/commands"
     clean_stale_skills "$target_dir/.claude/skills"
+    clean_stale_project_links "$target_dir"
 
     # Deploy shared config
     deploy_shared_config "$SCRIPT_DIR/shared" "$target_dir"
