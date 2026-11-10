@@ -77,3 +77,43 @@ setup_worktree_config() {
     [ "$status" -eq 1 ]
     grep -q "^$MAIN_REPO/.claude/rules/testing.md" "$CLAUDE_CONFIG_DIR/.deployed-rules"
 }
+
+@test "removes a worktree CLAUDE.md link once its source is deleted" {
+    mkdir -p "$CLAUDE_CONFIG_DIR/projects/project-a"
+    echo "# Project A context" > "$CLAUDE_CONFIG_DIR/projects/project-a/CLAUDE.md"
+    setup_worktree
+    setup_worktree_config > /dev/null
+    [ -L "$WORKTREE/CLAUDE.md" ]
+    rm -r "$CLAUDE_CONFIG_DIR/projects/project-a"
+    run setup_worktree_config
+    [ "$status" -eq 0 ]
+    [ ! -L "$WORKTREE/CLAUDE.md" ]
+}
+
+@test "does not link a real CLAUDE.md of the main repo into the worktree" {
+    setup_worktree
+    echo "# Tracked context" > "$MAIN_REPO/CLAUDE.md"
+    run setup_worktree_config
+    [ "$status" -eq 0 ]
+    [ ! -e "$WORKTREE/CLAUDE.md" ]
+}
+
+@test "removes a worktree CLAUDE.md link once the upstream tracks one" {
+    mkdir -p "$CLAUDE_CONFIG_DIR/projects/project-a"
+    echo "# Project A context" > "$CLAUDE_CONFIG_DIR/projects/project-a/CLAUDE.md"
+    setup_worktree
+    git -C "$WORKTREE" init -q -b work
+    git -C "$WORKTREE" -c user.name=test -c user.email=test@example.com commit -q --allow-empty -m init
+    setup_worktree_config > /dev/null
+    [ -L "$WORKTREE/CLAUDE.md" ]
+
+    local blob tree commit
+    blob="$(echo "# Tracked context" | git -C "$WORKTREE" hash-object -w --stdin)"
+    tree="$(printf '100644 blob %s\tCLAUDE.md\n' "$blob" | git -C "$WORKTREE" mktree)"
+    commit="$(git -C "$WORKTREE" -c user.name=test -c user.email=test@example.com commit-tree "$tree" -p HEAD -m add)"
+    git -C "$WORKTREE" update-ref refs/remotes/origin/main "$commit"
+
+    run setup_worktree_config
+    [ "$status" -eq 0 ]
+    [ ! -e "$WORKTREE/CLAUDE.md" ]
+}
