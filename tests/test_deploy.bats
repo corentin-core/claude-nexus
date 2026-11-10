@@ -155,6 +155,43 @@ load test_helper/setup
     grep -q "Project A context" "$TEST_WORKSPACE/project-a/CLAUDE.md"
 }
 
+@test "project-specific CLAUDE.md is skipped when the repo tracks one" {
+    mkdir -p "$CLAUDE_CONFIG_DIR/projects/project-a"
+    echo "# Project A context" > "$CLAUDE_CONFIG_DIR/projects/project-a/CLAUDE.md"
+    rm -rf "$TEST_WORKSPACE/project-a/.git"
+    git -C "$TEST_WORKSPACE/project-a" init -q
+    echo "# Tracked context" > "$TEST_WORKSPACE/project-a/CLAUDE.md"
+    git -C "$TEST_WORKSPACE/project-a" add CLAUDE.md
+    git -C "$TEST_WORKSPACE/project-a" -c user.name=test -c user.email=test@example.com commit -qm init
+    run "$CLAUDE_CONFIG_DIR/deploy.sh"
+    [ "$status" -eq 0 ]
+    [ ! -L "$TEST_WORKSPACE/project-a/CLAUDE.md" ]
+    grep -q "Tracked context" "$TEST_WORKSPACE/project-a/CLAUDE.md"
+    [[ "$output" == *"project-a/CLAUDE.md (tracked by the repo)"* ]]
+}
+
+@test "project-specific CLAUDE.md symlink is removed when origin starts tracking one" {
+    mkdir -p "$CLAUDE_CONFIG_DIR/projects/project-a"
+    echo "# Project A context" > "$CLAUDE_CONFIG_DIR/projects/project-a/CLAUDE.md"
+    rm -rf "$TEST_WORKSPACE/project-a/.git"
+    local repo="$TEST_WORKSPACE/project-a"
+    git -C "$repo" init -q
+    git -C "$repo" -c user.name=test -c user.email=test@example.com commit -q --allow-empty -m init
+    run "$CLAUDE_CONFIG_DIR/deploy.sh"
+    [ -L "$repo/CLAUDE.md" ]
+
+    # origin/HEAD gains a CLAUDE.md that the local HEAD does not have yet
+    local blob tree commit
+    blob="$(echo "# Tracked context" | git -C "$repo" hash-object -w --stdin)"
+    tree="$(printf '100644 blob %s\tCLAUDE.md\n' "$blob" | git -C "$repo" mktree)"
+    commit="$(git -C "$repo" -c user.name=test -c user.email=test@example.com commit-tree "$tree" -p HEAD -m add)"
+    git -C "$repo" update-ref refs/remotes/origin/HEAD "$commit"
+
+    run "$CLAUDE_CONFIG_DIR/deploy.sh"
+    [ "$status" -eq 0 ]
+    [ ! -e "$repo/CLAUDE.md" ]
+}
+
 @test "warns about name collisions" {
     mkdir -p "$CLAUDE_CONFIG_DIR/projects/project-a/rules"
     echo "# Override" > "$CLAUDE_CONFIG_DIR/projects/project-a/rules/git-conventions.md"
