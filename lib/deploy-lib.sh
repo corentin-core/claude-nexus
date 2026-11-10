@@ -513,29 +513,36 @@ deploy_shared_config() {
     deploy_skills "$src_dir/skills" "$target_dir/.claude/skills"
 }
 
-# True when the repo tracks the path on HEAD, or on origin/HEAD for a checkout
-# that has not pulled the commit adding it yet.
+# True when the repo tracks the path on HEAD, or on a commit the next pull may
+# check out: the upstream, or the default branch of origin. Only what the last
+# fetch brought is seen, so a deploy run after the pull's fetch catches up.
 repo_tracks() {
     local repo="$1"
     local path="$2"
-    git -C "$repo" cat-file -e "HEAD:$path" 2>/dev/null \
-        || git -C "$repo" cat-file -e "origin/HEAD:$path" 2>/dev/null
+    local refs=(HEAD origin/HEAD origin/main origin/master origin/development)
+    local upstream ref
+    # Resolved apart: an unset @{upstream} aborts the whole batch below.
+    upstream="$(git -C "$repo" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null)" \
+        && refs+=("$upstream")
+    for ref in "${refs[@]}"; do
+        echo "$ref:$path"
+    done | git -C "$repo" cat-file --batch-check 2>/dev/null | grep -qv ' missing$'
 }
 
 # Leave a tracked file to the repo, and remove our own symlink over it, which
 # would make git refuse to check out the commit that adds the file.
 skip_tracked_link() {
-    local dst="$1"
-    if [[ -L "$dst" && "$(resolve_path "$dst" 2>/dev/null || true)" == "$SCRIPT_DIR"/* ]]; then
+    local src="$1"
+    local dst="$2"
+    if [[ -L "$dst" && "$(readlink "$dst" 2>/dev/null || true)" == "$SCRIPT_DIR"/* ]]; then
         if $DRY_RUN; then
             log "[dry-run] would remove symlink: $dst (tracked by the repo)"
         else
             rm "$dst"
             log "removed: $dst (tracked by the repo)"
         fi
-    else
-        log "skipped: $dst (tracked by the repo)"
     fi
+    warn "unused: $src, since the repo tracks $dst"
 }
 
 # Deploy project-specific overrides (rules, commands, skills, CLAUDE.md, settings)
@@ -571,7 +578,7 @@ deploy_project_overrides() {
     for name in CLAUDE.md CLAUDE.local.md; do
         [[ -f "$project_config_dir/$name" ]] || continue
         if repo_tracks "$target_dir" "$name"; then
-            skip_tracked_link "$target_dir/$name"
+            skip_tracked_link "$project_config_dir/$name" "$target_dir/$name"
         else
             safe_link "$project_config_dir/$name" "$target_dir/$name"
         fi

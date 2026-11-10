@@ -134,18 +134,26 @@ for md_file in CLAUDE.md CLAUDE.local.md; do
     src="$MAIN_REPO/$md_file"
     dst="$WORKTREE/$md_file"
 
-    # Skip if already exists in worktree (e.g. tracked by git)
-    [[ -e "$dst" ]] && continue
+    remove_if_stale "$dst"
 
-    if [[ -L "$src" ]]; then
-        # Symlink from deploy.sh — copy the symlink
+    # A link over a file the branch or its upstream tracks blocks the checkout
+    # of the commit that adds it, as deploy.sh handles in the main repo.
+    if repo_tracks "$WORKTREE" "$md_file"; then
+        if [[ -L "$dst" && "$(readlink "$dst")" == "$SCRIPT_DIR"/* ]]; then
+            rm "$dst"
+            echo "Removed $md_file link: the branch tracks its own"
+        fi
+        continue
+    fi
+
+    [[ -e "$dst" || -L "$dst" ]] && continue
+
+    # Only a live deploy.sh link is copied. A real file in the main repo is
+    # tracked there or belongs to the user, and a link to it would block a checkout.
+    if [[ -L "$src" && -e "$src" ]]; then
         target="$(readlink "$src")"
         ln -sf "$target" "$dst"
         echo "Linked $md_file -> $target"
-    elif [[ -f "$src" ]]; then
-        # Real file — symlink to main repo's copy
-        ln -sf "$src" "$dst"
-        echo "Linked $md_file -> $src"
     fi
 done
 
