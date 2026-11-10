@@ -171,6 +171,7 @@ description: What this skill does
 - **Auto-discovery**: deploys to all sibling git repos automatically
 - **Idempotent**: safe to run multiple times
 - **Non-destructive**: never overwrites real (non-symlink) files
+- **Defers to a tracked `CLAUDE.md`**: a project whose repo tracks its own `CLAUDE.md` or `CLAUDE.local.md`, on `HEAD` or on `origin/HEAD`, keeps it, and a symlink deployed earlier at that path is removed
 - **Self-cleaning**: removes stale symlinks and rules when source files are deleted
 - **Relinked after a checkout**: git hooks in the config repo run `deploy.sh --relink`, which re-links each rule whose hardlink a pull, a checkout or a rebase broke
 - **Auto-gitignore**: adds `.claude/` to each project's `.gitignore`

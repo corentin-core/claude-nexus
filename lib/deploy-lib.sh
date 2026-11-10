@@ -500,6 +500,31 @@ deploy_shared_config() {
     deploy_skills "$src_dir/skills" "$target_dir/.claude/skills"
 }
 
+# True when the repo tracks the path on HEAD, or on origin/HEAD for a checkout
+# that has not pulled the commit adding it yet.
+repo_tracks() {
+    local repo="$1"
+    local path="$2"
+    git -C "$repo" cat-file -e "HEAD:$path" 2>/dev/null \
+        || git -C "$repo" cat-file -e "origin/HEAD:$path" 2>/dev/null
+}
+
+# Leave a tracked file to the repo, and remove our own symlink over it, which
+# would make git refuse to check out the commit that adds the file.
+skip_tracked_link() {
+    local dst="$1"
+    if [[ -L "$dst" && "$(resolve_path "$dst" 2>/dev/null || true)" == "$SCRIPT_DIR"/* ]]; then
+        if $DRY_RUN; then
+            log "[dry-run] would remove symlink: $dst (tracked by the repo)"
+        else
+            rm "$dst"
+            log "removed: $dst (tracked by the repo)"
+        fi
+    else
+        log "skipped: $dst (tracked by the repo)"
+    fi
+}
+
 # Deploy project-specific overrides (rules, commands, skills, CLAUDE.md, settings)
 deploy_project_overrides() {
     local project_config_dir="$1"  # e.g., SCRIPT_DIR/projects/<name>
@@ -529,12 +554,15 @@ deploy_project_overrides() {
     deploy_skills "$project_config_dir/skills" "$target_dir/.claude/skills"
 
     # Project-specific CLAUDE.md and CLAUDE.local.md
-    if [[ -f "$project_config_dir/CLAUDE.md" ]]; then
-        safe_link "$project_config_dir/CLAUDE.md" "$target_dir/CLAUDE.md"
-    fi
-    if [[ -f "$project_config_dir/CLAUDE.local.md" ]]; then
-        safe_link "$project_config_dir/CLAUDE.local.md" "$target_dir/CLAUDE.local.md"
-    fi
+    local name
+    for name in CLAUDE.md CLAUDE.local.md; do
+        [[ -f "$project_config_dir/$name" ]] || continue
+        if repo_tracks "$target_dir" "$name"; then
+            skip_tracked_link "$target_dir/$name"
+        else
+            safe_link "$project_config_dir/$name" "$target_dir/$name"
+        fi
+    done
 
     # Project-specific settings.json
     if [[ -f "$project_config_dir/settings.json" ]]; then
