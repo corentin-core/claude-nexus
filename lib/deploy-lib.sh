@@ -82,18 +82,31 @@ clean_stale_symlinks() {
 
     local f
     for f in "$dir"/*; do
-        [[ -L "$f" ]] || continue
-        local target
-        target="$(readlink "$f" 2>/dev/null || true)"
-        if [[ "$target" == "$SCRIPT_DIR"/* ]] && [[ ! -e "$target" ]]; then
-            if $DRY_RUN; then
-                log "[dry-run] would remove stale symlink: $f"
-            else
-                rm "$f"
-                log "removed stale: $f"
-            fi
-        fi
+        remove_if_stale "$f"
     done
+}
+
+# Remove a symlink into the config repo whose source was deleted
+remove_if_stale() {
+    local f="$1"
+    [[ -L "$f" ]] || return 0
+    local target
+    target="$(readlink "$f" 2>/dev/null || true)"
+    if [[ "$target" == "$SCRIPT_DIR"/* ]] && [[ ! -e "$target" ]]; then
+        if $DRY_RUN; then
+            log "[dry-run] would remove stale symlink: $f"
+        else
+            rm "$f"
+            log "removed stale: $f"
+        fi
+    fi
+}
+
+# Clean the project CLAUDE.md links, which sit at the repo root
+clean_stale_project_links() {
+    local target_dir="$1"
+    remove_if_stale "$target_dir/CLAUDE.md"
+    remove_if_stale "$target_dir/CLAUDE.local.md"
 }
 
 # ─── Rule hardlinks ──────────────────────────────────────────────────────────
